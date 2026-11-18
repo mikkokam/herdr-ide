@@ -2,7 +2,7 @@
 // later files arrive through shared(OPEN). Files on another machine open read-only, because writeTextFile writes only on this computer.
 import { div } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState, InputState, Input, TextView } from "gpui-base";
-import { props, shared, readTextFile, writeTextFile, watchFolder, theme, settings, home, checking } from "herdr";
+import { props, shared, nextCommand, readTextFile, writeTextFile, watchFolder, theme, settings, home, checking } from "herdr";
 import { OPEN } from "./open.js";
 
 const LANG = { ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", toml: "yaml", jsonc: "json", svelte: "html", vue: "html", md: "markdown", mdx: "markdown" };
@@ -31,6 +31,14 @@ export class EditorPane {
         for (const f of saved?.files ?? []) this.open(f.file, f.on ?? null, cx, { select: false });
         this.select(this.buffers[saved?.active] ?? this.buffers[0] ?? null);
         if (p.file) this.open(p.file, p.on ?? null, cx, { line: p.line, find: p.find });
+        // `herdr-app do herdr-ide.open:<path>[:<line>]` opens a local file in the shown editor, for scripts and agents.
+        if (!checking()) cx.spawn(async cx => {
+            for (;;) {
+                const c = await nextCommand();
+                const m = /^open:(.+?)(?::(\d+))?$/.exec(c);
+                if (m) { this.open(m[1], null, cx, { line: m[2] ? Number(m[2]) : null }); cx.notify(); }
+            }
+        });
     }
 
     storageKey() {

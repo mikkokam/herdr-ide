@@ -19,6 +19,7 @@ A file tree with project search in Herdr's right panel, and a tabbed editor pane
 - Cmd-F opens the find bar, seeded with the selection when it is on one line. Typing selects the first match at or after the cursor; Enter or Cmd-G goes to the next, Shift-Enter or Cmd-Shift-G to the previous, wrapping; Esc closes the bar and returns to the editor.
 - Cmd-S saves. A file changed on disk reloads when the buffer is clean; when it is dirty, Save reports the conflict and Reload discards the edits. Closing an unsaved tab asks for a second close. Middle-click closes a tab.
 - Files on another machine open read-only, since `writeTextFile` writes only on this computer.
+- `herdr-app do herdr-ide.open:<path>` or `herdr-ide.open:<path>:<line>` opens a local file in the shown editor pane, so a script or an agent can show you a file.
 - Each editor pane remembers its open files per Herdr tab in `localStorage`.
 - While the editor has the keyboard, the tree stays on the last terminal's folder.
 
@@ -26,7 +27,7 @@ A file tree with project search in Herdr's right panel, and a tabbed editor pane
 
 - **Mod** `mods/herdr-ide/`, one mod in three roles chosen by `props.role`: `files` (the layout block), `editor` (`pane.split`), `menu` (a popup). `files.js` is a `mod.clone` of Herdr's `files` (0.1.16) with search, the open routing and the menu added; `editor.js` started from Herdr's `editor` (0.1.16).
 - **Layout** `layouts/main-ide.json`: Herdr's `main` (0.1.16) with the `files` block's content set to `{ "mod": "herdr-ide", "props": { "role": "files" } }`.
-- **herdr**: `panes`, `focused`, `spaces`, `run` (`pane.split`, `pane.focus`), `shared` / `setShared` (`herdr-ide.open`), `openOverlay`, `closeOverlay`, `exec`, `readTextFile`, `writeTextFile`, `watchFolder`.
+- **herdr**: `panes`, `focused`, `spaces`, `run` (`pane.split`, `pane.focus`), `shared` / `setShared` (`herdr-ide.open`), `nextCommand` (`open:`), `openOverlay`, `closeOverlay`, `exec`, `readTextFile`, `writeTextFile`, `watchFolder`.
 
 ## Watch out
 
@@ -34,6 +35,8 @@ A file tree with project search in Herdr's right panel, and a tabbed editor pane
 - To use your own layout instead of `main-ide`, set its `files` block's content as above.
 - A mod pane cannot set its header title, so the editor pane's header reads `herdr-ide`.
 - `herdr-app ls` does not list mod panes.
+- `herdr-ide.open` reaches only an editor pane that is shown; with none in the shown tab, it does nothing.
+- Search runs `rg` from the app's own PATH: a Homebrew `rg` the login shell finds is used, a shell alias or function is not.
 - "Open in Zed" runs `open -a Zed`; it does nothing without Zed installed, and nothing on Linux or Windows.
 
 ## Done when
@@ -43,3 +46,4 @@ A file tree with project search in Herdr's right panel, and a tabbed editor pane
 - A click on a file splits off one editor pane; a second file opens as a second tab in it.
 - Typing a word in the search field lists matches; a click on one opens the file with the match selected.
 - Cmd-F, a query and Enter step through matches; Cmd-S writes the file.
+- `herdr-app do herdr-ide.open:$PWD/README.md:3` with an editor pane shown opens README.md at line 3.

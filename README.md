@@ -1,6 +1,6 @@
 # herdr-ide
 
-An editor for the [Herdr](https://herdr.dev) desktop app: a file tree with project search in the right panel, and a tabbed editor pane beside your terminals. Click a file to open it, Cmd-F to find, Cmd-S to save. It uses the mouse and has no language servers.
+An editor for the [Herdr](https://herdr.dev) desktop app: a file tree with project search in the right panel, and a tabbed editor pane beside your terminals. Click a file to open it, Cmd-F to find, Cmd-S to save; scripts and agents can open a file with `herdr-app do herdr-ide.open:<path>[:<line>]`. It uses the mouse and has no language servers.
 
 ![herdr-ide](preview.png)
 
