@@ -24,15 +24,10 @@ test("the entry just written stays even when it alone is over the limit", () => 
     expect(toRemove([entry("big-1-1", 500, 1)], "big-1-1", new Set(), 100)).toEqual([]);
 });
 
-test("open previews are read from the saved state of the given tabs only", () => {
-    const data = {
-        "herdr-ide:t1": JSON.stringify({ files: [{ file: "/a.pdf", entry: "abc-1-1" }, { file: "/b.js" }], active: 0 }),
-        "herdr-ide:t2": JSON.stringify({ files: [{ file: "/c.png", entry: "def-1-1.png" }], active: 0 }),
-        "herdr-ide:t3": "not json",
-        "herdr-ide:closed": JSON.stringify({ files: [{ file: "/d.pdf", entry: "zzz-1-1" }], active: 0 }),
-    };
-    const storage = { getItem: k => data[k] ?? null };
-    expect([...inUse(storage, ["t1", "t2", "t3", "t4"])].sort()).toEqual(["abc-1-1", "def-1-1.png"]);
+test("open previews are those of the given tabs only", () => {
+    const previews = { t1: { "/a.pdf": "abc-1-1" }, t2: { "/c.png": "def-1-1.png" }, closed: { "/d.pdf": "zzz-1-1" } };
+    expect([...inUse(previews, ["t1", "t2", "t3"])].sort()).toEqual(["abc-1-1", "def-1-1.png"]);
+    expect([...inUse(undefined, ["t1"])]).toEqual([]);
 });
 
 test("entries are read from du and stat output, skipping files the cache did not name", () => {

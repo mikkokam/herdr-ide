@@ -28,15 +28,9 @@ export function toRemove(entries, current, keep, limitKb) {
     return [...stale, ...evicted].map(e => e.name);
 }
 
-// The previews open in the given Herdr tabs, from the state each editor pane saves under herdr-ide:<tab>.
-export function inUse(storage, tabs) {
-    const names = new Set();
-    for (const tab of tabs) {
-        try {
-            for (const f of JSON.parse(storage.getItem(`herdr-ide:${tab}`) ?? "null")?.files ?? []) if (f.entry) names.add(f.entry);
-        } catch {}
-    }
-    return names;
+// The previews open in the given Herdr tabs; `previews` is { [tab]: { [file]: entry } }.
+export function inUse(previews, tabs) {
+    return new Set([...tabs].flatMap(tab => Object.values(previews?.[tab] ?? {})));
 }
 
 // Entries from `du -sk` and `stat -f "%m<tab>%N"` run as `find . -mindepth 1 -maxdepth 1 -exec … {} +`; anything not named like an entry is left out.

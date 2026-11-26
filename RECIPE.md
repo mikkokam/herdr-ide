@@ -30,7 +30,7 @@ A file tree with project search in Herdr's right panel, and a tabbed editor pane
 
 - **Mod** `mods/herdr-ide/`, one mod in three roles chosen by `props.role`: `files` (the layout block), `editor` (`pane.split`), `menu` (a popup). `files.js` is a `mod.clone` of Herdr's `files` (0.1.16) with search, the open routing and the menu added; `editor.js` started from Herdr's `editor` (0.1.16).
 - **Layout** `layouts/main-ide.json`: Herdr's `main` (0.1.16) with the `files` block's content set to `{ "mod": "herdr-ide", "props": { "role": "files" } }`.
-- **herdr**: `panes`, `focused`, `spaces`, `run` (`pane.split`, `pane.focus`), `shared` / `setShared` (`herdr-ide.open`), `nextCommand` (`open:`), `openOverlay`, `closeOverlay`, `exec`, `readTextFile`, `writeTextFile`, `watchFolder`, `appHome`, `window`.
+- **herdr**: `panes`, `focused`, `spaces`, `run` (`pane.split`, `pane.focus`), `shared` / `setShared` (`herdr-ide.open`, `herdr-ide.previews`), `nextCommand` (`open:`), `openOverlay`, `closeOverlay`, `exec`, `readTextFile`, `writeTextFile`, `watchFolder`, `appHome`, `window`.
 - **gpui-kit**: `image` for previews.
 
 ## Watch out

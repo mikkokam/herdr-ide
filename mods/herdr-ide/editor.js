@@ -2,8 +2,8 @@
 // later files arrive through shared(OPEN). Files on another machine open read-only, because writeTextFile writes only on this computer.
 import { div, image } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState, InputState, Input, TextView } from "gpui-base";
-import { props, panes, shared, nextCommand, readTextFile, writeTextFile, watchFolder, exec, theme, settings, home, appHome, window, checking } from "herdr";
-import { MOD, OPEN } from "./open.js";
+import { props, panes, shared, setShared, nextCommand, readTextFile, writeTextFile, watchFolder, exec, theme, settings, home, appHome, window, checking } from "herdr";
+import { MOD, OPEN, PREVIEWS } from "./open.js";
 import { entryName, toRemove, inUse, entriesFrom, CACHE_LIMIT_KB } from "./cache.js";
 
 const LANG = { ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", toml: "yaml", jsonc: "json", svelte: "html", vue: "html", md: "markdown", mdx: "markdown" };
@@ -87,7 +87,7 @@ async function pruneCache(current, tab) {
     const cwd = `${appHome()}/${CACHE}`, each = cmd => exec("/usr/bin/find", [".", "-mindepth", "1", "-maxdepth", "1", "-exec", ...cmd, "{}", "+"], { cwd });
     const [du, st] = await Promise.all([each(["/usr/bin/du", "-sk"]), each(["/usr/bin/stat", "-f", "%m\t%N"])]);
     const tabs = new Set([tab, ...panes().filter(p => p.mod === MOD).map(p => p.tab)]);
-    const gone = toRemove(entriesFrom(du.stdout, st.stdout), current, inUse(localStorage, tabs), CACHE_LIMIT_KB);
+    const gone = toRemove(entriesFrom(du.stdout, st.stdout), current, inUse(shared(PREVIEWS), tabs), CACHE_LIMIT_KB);
     if (gone.length) await exec("/bin/rm", ["-rf", "--", ...gone], { cwd });
 }
 
@@ -109,7 +109,8 @@ export class EditorPane {
         this.finder = null;
         this.seen = shared(OPEN)?.seq ?? null;
         const saved = this.saved();
-        for (const f of saved?.files ?? []) this.open(f.file, f.on ?? null, cx, { select: false, entry: f.entry ?? null });
+        const shown = shared(PREVIEWS)?.[this.tab] ?? {};
+        for (const f of saved?.files ?? []) this.open(f.file, f.on ?? null, cx, { select: false, entry: f.on ? null : shown[f.file] ?? null });
         this.select(this.buffers[saved?.active] ?? this.buffers[0] ?? null);
         if (p.file) this.open(p.file, p.on ?? null, cx, { line: p.line, find: p.find });
         // `herdr-app do herdr-ide.open:<path>[:<line>]` opens a local file in the shown editor, for scripts and agents.
@@ -132,11 +133,13 @@ export class EditorPane {
 
     persist() {
         if (checking()) return;
-        const files = this.buffers.map(b => ({ file: b.file, on: b.on, entry: b.entry ?? undefined }));
+        const files = this.buffers.map(b => ({ file: b.file, on: b.on }));
         try { localStorage.setItem(this.storageKey(), JSON.stringify({ files, active: this.buffers.indexOf(this.active) })); } catch {}
+        const all = shared(PREVIEWS) ?? {}, mine = Object.fromEntries(this.buffers.filter(b => b.entry).map(b => [b.file, b.entry]));
+        if (JSON.stringify(all[this.tab] ?? {}) !== JSON.stringify(mine)) setShared(PREVIEWS, { ...all, [this.tab]: mine });
     }
 
-    // `entry` is the preview saved with the tab, kept protected from pruning until the preview loads again.
+    // `entry` is the preview the tab showed last session, kept protected from pruning until the preview loads again.
     open(file, on, cx, { select = true, line = null, find = null, entry = null } = {}) {
         let b = this.buffers.find(x => x.file === file && x.on === on);
         if (!b) {
@@ -222,7 +225,7 @@ export class EditorPane {
     }
 
     // Only the latest request lands, so a slow earlier render cannot replace a newer one.
-    // The entry is saved with the tab before pruning, so other panes' prunes keep it.
+    // The entry is shared before pruning, so other panes' prunes keep it.
     loadPreview(b, cx) {
         if (b.kind === "binary" || !mac()) return;
         const seq = ++b.previewSeq;
