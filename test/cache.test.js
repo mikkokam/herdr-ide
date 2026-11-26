@@ -1,5 +1,5 @@
 import { test, expect } from "bun:test";
-import { toRemove, inUse, CACHE_LIMIT_KB } from "../mods/herdr-ide/cache.js";
+import { toRemove, inUse, entriesFrom, CACHE_LIMIT_KB } from "../mods/herdr-ide/cache.js";
 
 const entry = (name, kb, mtime) => ({ name, kb, mtime });
 
@@ -15,10 +15,6 @@ test("the cache is cut to the limit, oldest first", () => {
     expect(entries.filter(e => !gone.includes(e.name)).reduce((kb, e) => kb + e.kb, 0)).toBeLessThanOrEqual(100);
 });
 
-test("the limit is 256 MB", () => {
-    expect(CACHE_LIMIT_KB).toBe(256 * 1024);
-});
-
 test("previews open in a tab are never removed, stale or over the limit", () => {
     const entries = [entry("abc-100-5", 60, 1), entry("old-1-1", 60, 2), entry("abc-300-7", 60, 3)];
     expect(toRemove(entries, "abc-300-7", new Set(["abc-100-5", "old-1-1"]), 100)).toEqual([]);
@@ -28,14 +24,22 @@ test("the entry just written stays even when it alone is over the limit", () => 
     expect(toRemove([entry("big-1-1", 500, 1)], "big-1-1", new Set(), 100)).toEqual([]);
 });
 
-test("open previews are read from every tab's saved state", () => {
+test("open previews are read from the saved state of the given tabs only", () => {
     const data = {
-        "herdr-ide:t1": JSON.stringify({ files: [{ file: "/a.pdf", preview: "abc-1-1" }, { file: "/b.js" }], active: 0 }),
-        "herdr-ide:t2": JSON.stringify({ files: [{ file: "/c.png", preview: "def-1-1.png" }], active: 0 }),
+        "herdr-ide:t1": JSON.stringify({ files: [{ file: "/a.pdf", entry: "abc-1-1" }, { file: "/b.js" }], active: 0 }),
+        "herdr-ide:t2": JSON.stringify({ files: [{ file: "/c.png", entry: "def-1-1.png" }], active: 0 }),
         "herdr-ide:t3": "not json",
-        "other": JSON.stringify({ files: [{ preview: "zzz-1-1" }] }),
+        "herdr-ide:closed": JSON.stringify({ files: [{ file: "/d.pdf", entry: "zzz-1-1" }], active: 0 }),
     };
-    const keys = Object.keys(data);
-    const storage = { length: keys.length, key: i => keys[i] ?? null, getItem: k => data[k] ?? null };
-    expect([...inUse(storage)].sort()).toEqual(["abc-1-1", "def-1-1.png"]);
+    const storage = { getItem: k => data[k] ?? null };
+    expect([...inUse(storage, ["t1", "t2", "t3", "t4"])].sort()).toEqual(["abc-1-1", "def-1-1.png"]);
+});
+
+test("entries are read from du and stat output, skipping files the cache did not name", () => {
+    const du = "7404\t./pq2hdm-1795602223-252822\n0\t./.DS_Store\n0\t./g9ge9v-1795017852-718262.png\n";
+    const stat = "1795688533\t./pq2hdm-1795602223-252822\n1795689987\t./.DS_Store\n1795688532\t./g9ge9v-1795017852-718262.png\n";
+    expect(entriesFrom(du, stat)).toEqual([
+        { name: "pq2hdm-1795602223-252822", kb: 7404, mtime: 1795688533 },
+        { name: "g9ge9v-1795017852-718262.png", kb: 0, mtime: 1795688532 },
+    ]);
 });

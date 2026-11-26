@@ -2,9 +2,9 @@
 // later files arrive through shared(OPEN). Files on another machine open read-only, because writeTextFile writes only on this computer.
 import { div, image } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState, InputState, Input, TextView } from "gpui-base";
-import { props, shared, nextCommand, readTextFile, writeTextFile, watchFolder, exec, theme, settings, home, appHome, window, checking } from "herdr";
-import { OPEN } from "./open.js";
-import { toRemove, inUse, CACHE_LIMIT_KB } from "./cache.js";
+import { props, panes, shared, nextCommand, readTextFile, writeTextFile, watchFolder, exec, theme, settings, home, appHome, window, checking } from "herdr";
+import { MOD, OPEN } from "./open.js";
+import { entryName, toRemove, inUse, entriesFrom, CACHE_LIMIT_KB } from "./cache.js";
 
 const LANG = { ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", toml: "yaml", jsonc: "json", svelte: "html", vue: "html", md: "markdown", mdx: "markdown" };
 const MARKDOWN = new Set(["md", "mdx", "markdown"]);
@@ -37,19 +37,13 @@ const kindOf = ext => ext === "svg" ? "text" : IMAGE.has(ext) ? "image" : ext ==
 
 const basename = file => file.slice(file.lastIndexOf("/") + 1);
 
-function hash(text) {
-    let h = 5381;
-    for (let i = 0; i < text.length; i++) h = (h * 33 + text.charCodeAt(i)) >>> 0;
-    return h.toString(36);
-}
-
-// image() reads only paths inside the app folder, so previews go through a cache there, named by the file's path, mtime and size.
+// image() reads only paths inside the app folder, so previews go through a cache there.
 // Tools are called by their /usr/bin path, so GNU coreutils ahead on PATH cannot change their options.
 async function cacheName(file) {
     const st = await exec("/usr/bin/stat", ["-f", "%m-%z", file]);
     if (st.code) throw new Error(st.stderr.trim());
     await exec("/bin/mkdir", ["-p", `${appHome()}/${CACHE}`]);
-    return `${CACHE}/${hash(file)}-${st.stdout.trim()}`;
+    return `${CACHE}/${entryName(file, st.stdout.trim())}`;
 }
 
 // SVG from its root element's width and height or viewBox; other images through sips.
@@ -88,15 +82,12 @@ async function pdfPages(file) {
     return { pages: meta.ratios.map((ratio, i) => ({ src: `${dir}/${i + 1}.png`, max: null, ratio })), pageCount: meta.pageCount, entry: basename(dir) };
 }
 
-// Deletes what cache.js picks; `find` runs inside the cache, so each line names an entry as ./<name>, and anything not named like an entry is left alone.
-async function pruneCache(current) {
+// Deletes what cache.js picks, keeping the previews of every tab that shows an editor pane, this one's included.
+async function pruneCache(current, tab) {
     const cwd = `${appHome()}/${CACHE}`, each = cmd => exec("/usr/bin/find", [".", "-mindepth", "1", "-maxdepth", "1", "-exec", ...cmd, "{}", "+"], { cwd });
     const [du, st] = await Promise.all([each(["/usr/bin/du", "-sk"]), each(["/usr/bin/stat", "-f", "%m\t%N"])]);
-    const rows = text => text.split("\n").filter(Boolean).map(line => line.split("\t")).map(([n, path]) => [path.replace(/^\.\//, ""), Number(n)]);
-    const mtimes = new Map(rows(st.stdout));
-    const entries = rows(du.stdout).filter(([name]) => /^[0-9a-z]+-\d+-\d+(\.\w+)?$/.test(name) && mtimes.has(name))
-        .map(([name, kb]) => ({ name, kb, mtime: mtimes.get(name) }));
-    const gone = toRemove(entries, current, inUse(localStorage), CACHE_LIMIT_KB);
+    const tabs = new Set([tab, ...panes().filter(p => p.mod === MOD).map(p => p.tab)]);
+    const gone = toRemove(entriesFrom(du.stdout, st.stdout), current, inUse(localStorage, tabs), CACHE_LIMIT_KB);
     if (gone.length) await exec("/bin/rm", ["-rf", "--", ...gone], { cwd });
 }
 
@@ -118,7 +109,7 @@ export class EditorPane {
         this.finder = null;
         this.seen = shared(OPEN)?.seq ?? null;
         const saved = this.saved();
-        for (const f of saved?.files ?? []) this.open(f.file, f.on ?? null, cx, { select: false });
+        for (const f of saved?.files ?? []) this.open(f.file, f.on ?? null, cx, { select: false, entry: f.entry ?? null });
         this.select(this.buffers[saved?.active] ?? this.buffers[0] ?? null);
         if (p.file) this.open(p.file, p.on ?? null, cx, { line: p.line, find: p.find });
         // `herdr-app do herdr-ide.open:<path>[:<line>]` opens a local file in the shown editor, for scripts and agents.
@@ -141,16 +132,17 @@ export class EditorPane {
 
     persist() {
         if (checking()) return;
-        const files = this.buffers.map(b => ({ file: b.file, on: b.on, preview: b.entry ?? undefined }));
+        const files = this.buffers.map(b => ({ file: b.file, on: b.on, entry: b.entry ?? undefined }));
         try { localStorage.setItem(this.storageKey(), JSON.stringify({ files, active: this.buffers.indexOf(this.active) })); } catch {}
     }
 
-    open(file, on, cx, { select = true, line = null, find = null } = {}) {
+    // `entry` is the preview saved with the tab, kept protected from pruning until the preview loads again.
+    open(file, on, cx, { select = true, line = null, find = null, entry = null } = {}) {
         let b = this.buffers.find(x => x.file === file && x.on === on);
         if (!b) {
             const name = basename(file);
             const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
-            b = { file, on, ext, kind: kindOf(ext), pages: null, pageCount: 0, entry: null, previewSeq: 0, code: null, base: null, error: null, conflict: false, preview: ext === "svg" && !on, closing: false, goto: null };
+            b = { file, on, ext, kind: kindOf(ext), pages: null, pageCount: 0, entry, previewSeq: 0, code: null, base: null, error: null, conflict: false, preview: ext === "svg" && !on, closing: false, goto: null };
             this.buffers.push(b);
             this.load(b, cx);
             if (!on && !checking() && b.kind === "text") this.watch(b, cx);
@@ -230,17 +222,17 @@ export class EditorPane {
     }
 
     // Only the latest request lands, so a slow earlier render cannot replace a newer one.
-    // The entry is saved with the tab before the cache is pruned, so no pane deletes a preview another pane shows.
+    // The entry is saved with the tab before pruning, so other panes' prunes keep it.
     loadPreview(b, cx) {
         if (b.kind === "binary" || !mac()) return;
         const seq = ++b.previewSeq;
         cx.spawn(async cx => {
             try {
                 const preview = await (b.kind === "pdf" ? pdfPages(b.file) : imagePages(b.file, b.ext));
-                if (seq !== b.previewSeq) return;
+                if (seq !== b.previewSeq || !this.buffers.includes(b)) return;
                 Object.assign(b, preview, { error: null });
                 this.persist();
-                await pruneCache(preview.entry).catch(() => {});
+                await pruneCache(preview.entry, this.tab).catch(() => {});
             } catch (e) { if (seq === b.previewSeq) b.error = `No preview: ${e.message ?? e}`; }
             finally { cx.notify(); }
         });
