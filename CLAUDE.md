@@ -8,6 +8,7 @@ A Herdr desktop mod: file tree with project search, and a tabbed editor pane. `R
 rsync -a --delete mods/herdr-ide/ ~/.config/herdr-app/mods/herdr-ide/   # install this checkout; Herdr reloads on change
 herdr-app check ~/.config/herdr-app/mods/herdr-ide                      # after any change
 herdr-app status                                                         # load errors from the running window
+bun test                                                                 # fast tier: the cache pruning in cache.js
 ```
 
 ## Conventions

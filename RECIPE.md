@@ -30,7 +30,7 @@ A file tree with project search in Herdr's right panel, and a tabbed editor pane
 
 - **Mod** `mods/herdr-ide/`, one mod in three roles chosen by `props.role`: `files` (the layout block), `editor` (`pane.split`), `menu` (a popup). `files.js` is a `mod.clone` of Herdr's `files` (0.1.16) with search, the open routing and the menu added; `editor.js` started from Herdr's `editor` (0.1.16).
 - **Layout** `layouts/main-ide.json`: Herdr's `main` (0.1.16) with the `files` block's content set to `{ "mod": "herdr-ide", "props": { "role": "files" } }`.
-- **herdr**: `panes`, `focused`, `spaces`, `run` (`pane.split`, `pane.focus`), `shared` / `setShared` (`herdr-ide.open`), `nextCommand` (`open:`), `openOverlay`, `closeOverlay`, `exec`, `readTextFile`, `writeTextFile`, `watchFolder`, `appHome`, `window`.
+- **herdr**: `panes`, `focused`, `spaces`, `run` (`pane.split`, `pane.focus`), `shared` / `setShared` (`herdr-ide.open`, `herdr-ide.previews`), `nextCommand` (`open:`), `openOverlay`, `closeOverlay`, `exec`, `readTextFile`, `writeTextFile`, `watchFolder`, `appHome`, `window`.
 - **gpui-kit**: `image` for previews.
 
 ## Watch out
@@ -42,7 +42,7 @@ A file tree with project search in Herdr's right panel, and a tabbed editor pane
 - `herdr-ide.open` reaches only an editor pane that is shown; with none in the shown tab, it does nothing.
 - Search runs `rg` from the app's own PATH: a Homebrew `rg` the login shell finds is used, a shell alias or function is not.
 - "Open in Zed" runs `open -a Zed`; it does nothing without Zed installed, and nothing on Linux or Windows.
-- `image()` reads only paths inside the app folder, so previews go through `~/.config/herdr-app/cache/herdr-ide/`: a symlink to each image, a folder of page PNGs for each PDF. Nothing prunes it; deleting the folder is safe.
+- `image()` reads only paths inside the app folder, so previews go through `~/.config/herdr-app/cache/herdr-ide/`: a symlink to each image, a folder of page PNGs for each PDF. Each new preview removes the older versions of its file, then the least recently opened entries until the cache is under `CACHE_LIMIT_KB` (`cache.js`). Previews open in a tab that shows an editor pane, and the one just written, are never removed, so they can hold the cache over the limit. Deleting the folder is safe.
 - Changes on disk to an open image or PDF show only after the tab is closed and opened again.
 
 ## Done when
