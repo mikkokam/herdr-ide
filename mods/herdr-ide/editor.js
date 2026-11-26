@@ -4,6 +4,7 @@ import { div, image } from "gpui-kit";
 import { v_flex, h_flex, Editor, EditorState, InputState, Input, TextView } from "gpui-base";
 import { props, shared, nextCommand, readTextFile, writeTextFile, watchFolder, exec, theme, settings, home, appHome, window, checking } from "herdr";
 import { OPEN } from "./open.js";
+import { toRemove, inUse, CACHE_LIMIT_KB } from "./cache.js";
 
 const LANG = { ts: "js", tsx: "js", mts: "js", cts: "js", jsx: "js", mjs: "js", toml: "yaml", jsonc: "json", svelte: "html", vue: "html", md: "markdown", mdx: "markdown" };
 const MARKDOWN = new Set(["md", "mdx", "markdown"]);
@@ -71,7 +72,7 @@ async function imagePages(file, ext) {
     const src = `${await cacheName(file)}.${ext}`;
     const ln = await exec("/bin/ln", ["-sf", file, `${appHome()}/${src}`]);
     if (ln.code) throw new Error(ln.stderr.trim());
-    return { pages: [{ src, ...(await imageSize(file, ext)) }], pageCount: 1 };
+    return { pages: [{ src, ...(await imageSize(file, ext)) }], pageCount: 1, entry: basename(src) };
 }
 
 async function pdfPages(file) {
@@ -83,8 +84,20 @@ async function pdfPages(file) {
         if (r.code) throw new Error(r.stderr.trim() || "the PDF could not be rendered");
         meta = JSON.parse(r.stdout);
         await writeTextFile(`${abs}/meta.json`, JSON.stringify(meta), null).catch(() => {});
-    }
-    return { pages: meta.ratios.map((ratio, i) => ({ src: `${dir}/${i + 1}.png`, max: null, ratio })), pageCount: meta.pageCount };
+    } else await exec("/usr/bin/touch", [abs]);
+    return { pages: meta.ratios.map((ratio, i) => ({ src: `${dir}/${i + 1}.png`, max: null, ratio })), pageCount: meta.pageCount, entry: basename(dir) };
+}
+
+// Deletes what cache.js picks; `find` runs inside the cache, so each line names an entry as ./<name>, and anything not named like an entry is left alone.
+async function pruneCache(current) {
+    const cwd = `${appHome()}/${CACHE}`, each = cmd => exec("/usr/bin/find", [".", "-mindepth", "1", "-maxdepth", "1", "-exec", ...cmd, "{}", "+"], { cwd });
+    const [du, st] = await Promise.all([each(["/usr/bin/du", "-sk"]), each(["/usr/bin/stat", "-f", "%m\t%N"])]);
+    const rows = text => text.split("\n").filter(Boolean).map(line => line.split("\t")).map(([n, path]) => [path.replace(/^\.\//, ""), Number(n)]);
+    const mtimes = new Map(rows(st.stdout));
+    const entries = rows(du.stdout).filter(([name]) => /^[0-9a-z]+-\d+-\d+(\.\w+)?$/.test(name) && mtimes.has(name))
+        .map(([name, kb]) => ({ name, kb, mtime: mtimes.get(name) }));
+    const gone = toRemove(entries, current, inUse(localStorage), CACHE_LIMIT_KB);
+    if (gone.length) await exec("/bin/rm", ["-rf", "--", ...gone], { cwd });
 }
 
 // Smart case, as in ripgrep: a query with a capital letter matches case.
@@ -128,7 +141,7 @@ export class EditorPane {
 
     persist() {
         if (checking()) return;
-        const files = this.buffers.map(b => ({ file: b.file, on: b.on }));
+        const files = this.buffers.map(b => ({ file: b.file, on: b.on, preview: b.entry ?? undefined }));
         try { localStorage.setItem(this.storageKey(), JSON.stringify({ files, active: this.buffers.indexOf(this.active) })); } catch {}
     }
 
@@ -137,7 +150,7 @@ export class EditorPane {
         if (!b) {
             const name = basename(file);
             const ext = name.includes(".") ? name.split(".").pop().toLowerCase() : "";
-            b = { file, on, ext, kind: kindOf(ext), pages: null, pageCount: 0, previewSeq: 0, code: null, base: null, error: null, conflict: false, preview: ext === "svg" && !on, closing: false, goto: null };
+            b = { file, on, ext, kind: kindOf(ext), pages: null, pageCount: 0, entry: null, previewSeq: 0, code: null, base: null, error: null, conflict: false, preview: ext === "svg" && !on, closing: false, goto: null };
             this.buffers.push(b);
             this.load(b, cx);
             if (!on && !checking() && b.kind === "text") this.watch(b, cx);
@@ -217,13 +230,17 @@ export class EditorPane {
     }
 
     // Only the latest request lands, so a slow earlier render cannot replace a newer one.
+    // The entry is saved with the tab before the cache is pruned, so no pane deletes a preview another pane shows.
     loadPreview(b, cx) {
         if (b.kind === "binary" || !mac()) return;
         const seq = ++b.previewSeq;
         cx.spawn(async cx => {
             try {
                 const preview = await (b.kind === "pdf" ? pdfPages(b.file) : imagePages(b.file, b.ext));
-                if (seq === b.previewSeq) Object.assign(b, preview, { error: null });
+                if (seq !== b.previewSeq) return;
+                Object.assign(b, preview, { error: null });
+                this.persist();
+                await pruneCache(preview.entry).catch(() => {});
             } catch (e) { if (seq === b.previewSeq) b.error = `No preview: ${e.message ?? e}`; }
             finally { cx.notify(); }
         });
